@@ -12,7 +12,7 @@ from speed_and_distance_estimator import SpeedAndDistance_Estimator
 def main():
     
     # Read Video
-    video_frames = read_video('input_videos/A1606b0e6_0.mp4')
+    video_frames = read_video('input_videos/right_goal_post.mp4')
 
     # Initialize Tracker
     tracker = Tracker('models/best.pt')
@@ -56,65 +56,86 @@ def main():
             tracks['players'][frame_num][player_id]['team'] = team 
             tracks['players'][frame_num][player_id]['team_color'] = team_assigner.team_colors[team]
 
-    # Define goal post positions (assuming fixed positions for simplicity)
-    goal_post_positions = {
-        "left": (50, 300),  # example coordinates for left goal post
-        "right": (950, 300) # example coordinates for right goal post
-    }
-    goal_post_threshold = 200  # threshold distance to consider a player near the goal post
-
-    def is_near_goal_post(player_position, goal_post_positions, threshold):
-        for post, position in goal_post_positions.items():
-            distance = measure_distance(player_position, position)
-            # print(f"Distance from player to {post} goal post: {distance}") 
-            if distance < threshold:
-                return True, post
-        return False, None
+    penalty_area_coordinates = {'right_penalty_area': [(1365, 220), (1026, 250), (1458, 490), (1894, 500)],
+     'left_penalty_area': [(9, 540), (314, 676), (791, 317), (428, 298)]}
     
-    # Assign Ball Aquisition
-    player_assigner =PlayerBallAssigner()
-    team_ball_control= []
+    left_penalty_area = penalty_area_coordinates["left_penalty_area"]
+    right_penalty_area = penalty_area_coordinates["right_penalty_area"]
+
+    def is_point_in_polygon(point, polygon):
+        x, y = point
+        inside = False
+        n = len(polygon)
+        p1x, p1y = polygon[0]
+        for i in range(n + 1):
+            p2x, p2y = polygon[i % n]
+            if y > min(p1y, p2y):
+                if y <= max(p1y, p2y):
+                    if x <= max(p1x, p2x):
+                        if p1y != p2y:
+                            xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                        if p1x == p2x or x <= xinters:
+                            inside = not inside
+            p1x, p1y = p2x, p2y
+        return inside
+
+    def is_near_goal_post(player_position, left_penalty_area, right_penalty_area):
+        if is_point_in_polygon(player_position, left_penalty_area):
+            return True, "left"
+        elif is_point_in_polygon(player_position, right_penalty_area):
+            return True, "right"
+        return False, None
+
+    
+    # Assign Ball Acquisition
+    player_assigner = PlayerBallAssigner()
+    team_ball_control = []
+
     for frame_num, player_track in enumerate(tracks['players']):
-        
-        print(print(tracks['ball'][frame_num]))
+        for player_id, player in player_track.items():
+            if 'has_ball' not in player:
+                player['has_ball'] = False
+
         try:
             ball_bbox = tracks['ball'][frame_num][1]['bbox']
             assigned_player = player_assigner.assign_ball_to_player(player_track, ball_bbox)
-        except:
-            pass
-        
-        try:
-            if assigned_player != -1:
-                tracks['players'][frame_num][assigned_player]['has_ball'] = True
-                team_ball_control.append(tracks['players'][frame_num][assigned_player]['team'])
+        except KeyError:
+            assigned_player = -1
 
-                # Check if the player is near a goal post
-                player_position = player_track[assigned_player]['position_adjusted']
-                # print(f"Frame {frame_num}: Player {assigned_player} position: {player_position}")
-                near_goal, goal_post = is_near_goal_post(player_position, goal_post_positions, goal_post_threshold)
-                print("near goal",near_goal, goal_post)
+        if assigned_player != -1:
+            tracks['players'][frame_num][assigned_player]['has_ball'] = True
+            team_ball_control.append(tracks['players'][frame_num][assigned_player]['team'])
 
-                if near_goal:
-                    text = f"Player {assigned_player} near the {goal_post} goal post."
-                    print(text)
+            # Check if the player is near a goal post
+            player_position = player_track[assigned_player]['position_adjusted']
+            near_goal, goal_post = is_near_goal_post(player_position, left_penalty_area, right_penalty_area)
 
-                    # Draw the text on the frame
-                    #  parameters include the frame, the text to be displayed, the position (10 pixels from the left and 30 pixels from the bottom of the frame), the font, font scale, color (white), thickness, and line type.
-                    video_frames[frame_num] = cv2.putText(
-                        video_frames[frame_num], text, (10, video_frames[frame_num].shape[0] - 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA
-                    )
+            if near_goal:
+                text = f"Player {assigned_player} in possession of the ball, is near the {goal_post} goal post of the penalty box"
+
+                # Draw the text on the frame inside a rectanlge
+                # parameters include the frame, the text to be displayed, the position (10 pixels from the left and 30 pixels from the bottom of the frame), the font, font scale, color (white), thickness, and line type.
+                # cv2.rectangle(video_frames, (90, 910), (430,1000), (255,255,255), -1 )
                     
-        except:
-            pass
+                video_frames[frame_num] = cv2.putText(
+                    video_frames[frame_num], text, (10, video_frames[frame_num].shape[0] - 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA
+                )
 
+            else:
 
-        # else:
-        #     try:
-        #         team_ball_control.append(team_ball_control[-1])
-                
-        #     except:
-        #         team_ball_control.append(team_ball_control[0])
+                video_frames[frame_num] = cv2.putText(
+                    video_frames[frame_num], "At the moment, no player with the ball is close to the penalty area", (10, video_frames[frame_num].shape[0] - 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA
+                )
+
+        else:
+
+            video_frames[frame_num] = cv2.putText(
+                video_frames[frame_num], "At the moment, no player with the ball is close to the penalty area", (10, video_frames[frame_num].shape[0] - 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA
+            )
+
     team_ball_control= np.array(team_ball_control)
 
 
@@ -129,7 +150,7 @@ def main():
     speed_and_distance_estimator.draw_speed_and_distance(output_video_frames,tracks)
 
     # Save video
-    save_video(output_video_frames, 'output_videos/output_video2nd.avi')
+    save_video(output_video_frames, 'output_videos/right_goal_post_output.mp4')
 
 if __name__ == '__main__':
     main()
