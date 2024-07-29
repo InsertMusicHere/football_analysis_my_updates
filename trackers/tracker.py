@@ -83,7 +83,8 @@ class Tracker:
         tracks={
             "players":[],
             "referees":[],
-            "ball":[]
+            "ball":[],
+            "goalkeepers":[]
         }
 
         for frame_num, detection in enumerate(detections):
@@ -94,18 +95,18 @@ class Tracker:
             detection_supervision = sv.Detections.from_ultralytics(detection)
             print(detection_supervision)
             # Convert GoalKeeper to player object
-            for object_ind , class_id in enumerate(detection_supervision.class_id):
-                if cls_names[class_id] == "goalkeeper":
-                    detection_supervision.class_id[object_ind] = cls_names_inv["player"]
+            # for object_ind , class_id in enumerate(detection_supervision.class_id):
+            #     if cls_names[class_id] == "goalkeeper":
+            #         detection_supervision.class_id[object_ind] = cls_names_inv["player"]
 
             # Track Objects
             detection_with_tracks = self.tracker.update_with_detections(detection_supervision)
 
             
-
             tracks["players"].append({})
             tracks["referees"].append({})
             tracks["ball"].append({})
+            tracks["goalkeepers"].append({})
 
             for frame_detection in detection_with_tracks:
                 bbox = frame_detection[0].tolist()
@@ -117,6 +118,9 @@ class Tracker:
                 
                 if cls_id == cls_names_inv['referee']:
                     tracks["referees"][frame_num][track_id] = {"bbox":bbox}
+                
+                if cls_id == cls_names_inv['goalkeeper']:
+                    tracks["goalkeepers"][frame_num][track_id] = {"bbox":bbox}
             
             for frame_detection in detection_supervision:
                 bbox = frame_detection[0].tolist()
@@ -226,6 +230,8 @@ class Tracker:
             player_dict = tracks["players"][frame_num]
             ball_dict = tracks["ball"][frame_num]
             referee_dict = tracks["referees"][frame_num]
+            goalkeeper_dict = tracks["goalkeepers"][frame_num]
+
 
             # Draw Players
             for track_id, player in player_dict.items():
@@ -234,6 +240,10 @@ class Tracker:
 
                 if player.get('has_ball',False):
                     frame = self.draw_traingle(frame, player["bbox"],(0,0,255))
+            
+            # Draw Goalkeeper
+            for _, goalkeeper_ in goalkeeper_dict.items():
+                frame = self.draw_ellipse(frame, goalkeeper_["bbox"],(0,100,255))
 
             # Draw Referee
             for _, referee in referee_dict.items():
